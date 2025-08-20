@@ -44,6 +44,13 @@ class Document(BaseModel):
     embeddings: List[List[float]]
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
+class DocumentResponse(BaseModel):
+    id: str
+    title: str
+    content: str
+    chunks: List[str]
+    created_at: datetime
+
 class DocumentCreate(BaseModel):
     title: str
     content: str
