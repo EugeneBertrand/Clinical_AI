@@ -268,7 +268,7 @@ Please provide a detailed answer based on the clinical trial data provided. If t
             messages=[
                 {"role": "user", "content": prompt}
             ],
-            model="mixtral-8x7b-32768",
+            model="llama-3.3-70b-versatile",
             temperature=0.3,
             max_tokens=1000
         )
