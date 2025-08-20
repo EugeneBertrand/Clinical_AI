@@ -214,7 +214,7 @@ def main():
                     if result['sources']:
                         st.subheader("📚 Sources")
                         for source in result['sources']:
-                            st.badge(source, outline=True)
+                            st.badge(source)
                     
                     st.markdown("---")
             else:
