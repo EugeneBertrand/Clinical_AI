@@ -301,10 +301,10 @@ Please provide a detailed answer based on the clinical trial data provided. If t
         logging.error(f"Error processing query: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to process query: {str(e)}")
 
-@api_router.get("/documents", response_model=List[Document])
+@api_router.get("/documents", response_model=List[DocumentResponse])
 async def get_documents():
     documents = await db.documents.find({}, {"embeddings": 0, "_id": 0}).to_list(1000)  # Exclude embeddings and _id for performance
-    return [Document(**doc) for doc in documents]
+    return [DocumentResponse(**doc) for doc in documents]
 
 @api_router.delete("/documents/{document_id}")
 async def delete_document(document_id: str):
