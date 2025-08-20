@@ -296,7 +296,7 @@ Please provide a detailed answer based on the clinical trial data provided. If t
 
 @api_router.get("/documents", response_model=List[Document])
 async def get_documents():
-    documents = await db.documents.find({}, {"embeddings": 0}).to_list(1000)  # Exclude embeddings for performance
+    documents = await db.documents.find({}, {"embeddings": 0, "_id": 0}).to_list(1000)  # Exclude embeddings and _id for performance
     return [Document(**doc) for doc in documents]
 
 @api_router.delete("/documents/{document_id}")
