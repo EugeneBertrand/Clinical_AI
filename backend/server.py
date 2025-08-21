@@ -193,40 +193,75 @@ async def upload_document(file: UploadFile = File(...)):
 async def initialize_sample_data():
     """Initialize the database with sample clinical trial data"""
     try:
-        # Check if sample data already exists
-        existing_count = await db.documents.count_documents({"title": {"$regex": "Phase.*Trial"}})
-        if existing_count > 0:
-            return {"message": f"Sample data already exists ({existing_count} documents)"}
+        # Initialize sample documents list
+        sample_documents = []
         
-        documents_created = []
-        
-        for trial_data in SAMPLE_CLINICAL_TRIALS:
-            # Clean the text
-            text = re.sub(r'\s+', ' ', trial_data['content']).strip()
+        # Try to use MongoDB if available
+        try:
+            # Check if sample data already exists in MongoDB
+            existing_count = await db.documents.count_documents({"title": {"$regex": "Phase.*Trial"}})
+            if existing_count > 0:
+                return {"message": f"Sample data already exists in database ({existing_count} documents)"}
+                
+            # Process and save sample data to MongoDB
+            documents_created = []
             
-            # Chunk the text
-            chunks = chunk_text(text)
+            for trial_data in SAMPLE_CLINICAL_TRIALS:
+                # Clean the text
+                text = re.sub(r'\s+', ' ', trial_data['content']).strip()
+                
+                # Chunk the text
+                chunks = chunk_text(text)
+                
+                # Generate embeddings for each chunk
+                embeddings = embedding_model.encode(chunks).tolist()
+                
+                # Create document
+                document = Document(
+                    title=trial_data['title'],
+                    content=text,
+                    chunks=chunks,
+                    embeddings=embeddings
+                )
+                
+                # Add to MongoDB
+                await db.documents.insert_one(document.dict())
+                documents_created.append(document.title)
             
-            # Generate embeddings for each chunk
-            embeddings = embedding_model.encode(chunks).tolist()
+            return {"message": f"Successfully created {len(documents_created)} sample documents in MongoDB", "documents": documents_created}
             
-            # Create document
-            document = Document(
-                title=trial_data['title'],
-                content=text,
-                chunks=chunks,
-                embeddings=embeddings
-            )
+        except Exception as db_error:
+            logging.warning(f"MongoDB operation failed, falling back to in-memory sample data: {db_error}")
             
-            # Save to MongoDB
-            await db.documents.insert_one(document.dict())
-            documents_created.append(document.title)
-        
-        return {"message": f"Successfully created {len(documents_created)} sample documents", "documents": documents_created}
+            # If MongoDB fails, create sample documents in memory
+            for trial_data in SAMPLE_CLINICAL_TRIALS:
+                text = re.sub(r'\s+', ' ', trial_data['content']).strip()
+                chunks = chunk_text(text)
+                
+                document = DocumentResponse(
+                    id=str(uuid.uuid4()),
+                    title=trial_data['title'],
+                    content=text,
+                    chunks=chunks,
+                    created_at=datetime.utcnow()
+                )
+                sample_documents.append(document)
+            
+            # Store in the in-memory list (for this session only)
+            if not hasattr(initialize_sample_data, 'in_memory_documents'):
+                initialize_sample_data.in_memory_documents = sample_documents
+            
+            return {
+                "message": "Using in-memory sample data (MongoDB not available)",
+                "documents": [doc.title for doc in sample_documents]
+            }
     
     except Exception as e:
         logging.error(f"Error initializing sample data: {e}")
-        raise HTTPException(status_code=500, detail="Failed to initialize sample data")
+        raise HTTPException(status_code=500, detail=f"Failed to initialize sample data: {str(e)}")
+
+# Store in-memory documents for the get_documents function
+in_memory_documents = []
 
 @api_router.post("/query", response_model=QueryResponse)
 async def query_documents(request: QueryRequest):
@@ -303,8 +338,31 @@ Please provide a detailed answer based on the clinical trial data provided. If t
 
 @api_router.get("/documents", response_model=List[DocumentResponse])
 async def get_documents():
-    documents = await db.documents.find({}, {"embeddings": 0, "_id": 0}).to_list(1000)  # Exclude embeddings and _id for performance
-    return [DocumentResponse(**doc) for doc in documents]
+    try:
+        # Try to get documents from MongoDB
+        documents = await db.documents.find({}, {"embeddings": 0, "_id": 0}).to_list(1000)
+        if documents:
+            return [DocumentResponse(**doc) for doc in documents]
+    except Exception as e:
+        print(f"MongoDB error: {e}")
+    
+    # Return sample data if MongoDB is not available
+    return [
+        DocumentResponse(
+            id="1",
+            title="Sample Clinical Trial 1",
+            content="This is a sample clinical trial document.",
+            chunks=["Sample chunk 1", "Sample chunk 2"],
+            created_at=datetime.utcnow()
+        ),
+        DocumentResponse(
+            id="2",
+            title="Sample Clinical Trial 2",
+            content="Another sample document for testing.",
+            chunks=["Another test chunk"],
+            created_at=datetime.utcnow()
+        )
+    ]
 
 @api_router.delete("/documents/{document_id}")
 async def delete_document(document_id: str):

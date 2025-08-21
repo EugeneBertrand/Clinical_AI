@@ -1,0 +1,108 @@
+/* Main header animation */
+@keyframes subtlePulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.01); }
+    100% { transform: scale(1); }
+}
+
+/* Fade in animation */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Apply animations */
+.stApp header {
+    animation: fadeIn 0.8s ease-out;
+}
+
+/* Header styling with pulse animation */
+.header-container {
+    animation: subtlePulse 8s infinite ease-in-out;
+    transition: all 0.3s ease;
+}
+.header-container:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+}
+
+/* Button hover effects */
+.stButton>button {
+    transition: all 0.3s ease !important;
+    border-radius: 8px !important;
+}
+.stButton>button:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
+}
+
+/* Card styling */
+.card {
+    border-radius: 12px !important;
+    border: 1px solid #e0e0e0;
+    transition: all 0.3s ease;
+    animation: fadeIn 0.6s ease-out;
+    margin-bottom: 1rem;
+}
+.card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.1) !important;
+    border-color: #667eea;
+}
+
+/* Document list items */
+.document-item {
+    transition: all 0.3s ease;
+    border-radius: 8px;
+    padding: 0.75rem;
+    margin: 0.5rem 0;
+    border: 1px solid #e0e0e0;
+}
+.document-item:hover {
+    background-color: #f8f9ff;
+    transform: translateX(5px);
+    border-color: #667eea;
+}
+
+/* AI Answer section */
+.ai-answer {
+    animation: fadeIn 0.8s ease-out;
+    background: linear-gradient(135deg, #f8f9ff 0%, #eef2ff 100%);
+    border-radius: 12px;
+    padding: 1.5rem;
+    border-left: 4px solid #667eea;
+    margin: 1rem 0;
+    transition: all 0.3s ease;
+}
+.ai-answer:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(0,0,0,0.08);
+}
+
+/* Input field styling */
+.stTextArea textarea {
+    border-radius: 12px !important;
+    border: 2px solid #e0e0e0 !important;
+    transition: all 0.3s ease !important;
+}
+.stTextArea textarea:focus {
+    border-color: #667eea !important;
+    box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2) !important;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 10px;
+}
+::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: #a1a1a1;
+}
