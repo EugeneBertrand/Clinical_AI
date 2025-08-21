@@ -13,8 +13,9 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Backend URL - Updated to use local FastAPI server with /api prefix
-BACKEND_URL = "http://127.0.0.1:8000/api"
+# Backend URL - Configurable via environment variable, with localhost as default
+import os
+BACKEND_URL = os.getenv('BACKEND_URL', 'http://127.0.0.1:8000/api')
 
 # Initialize session state
 if 'chat_history' not in st.session_state:
