@@ -26,18 +26,21 @@ if 'deleted_docs' not in st.session_state:
 
 # Helper functions
 def fetch_documents():
-    try:
-        response = requests.get(f"{BACKEND_URL}/documents")
-        if response.status_code == 200:
-            # Filter out any documents that have been marked as deleted
-            all_docs = response.json()
-            st.session_state.documents = [
-                doc for doc in all_docs 
-                if str(doc.get('id', doc.get('_id', ''))) not in st.session_state.deleted_docs
-            ]
-    except Exception as e:
-        st.error(f"Error fetching documents: {str(e)}")
-        st.session_state.documents = []
+    # Only fetch documents if we don't have any in session state
+    if not st.session_state.get('documents_loaded', False):
+        try:
+            response = requests.get(f"{BACKEND_URL}/documents")
+            if response.status_code == 200:
+                # Filter out any documents that have been marked as deleted
+                all_docs = response.json()
+                st.session_state.documents = [
+                    doc for doc in all_docs 
+                    if str(doc.get('id', doc.get('_id', ''))) not in st.session_state.deleted_docs
+                ]
+                st.session_state.documents_loaded = True
+        except Exception as e:
+            st.error(f"Error fetching documents: {str(e)}")
+            st.session_state.documents = []
 
 def upload_document(file):
     try:
@@ -48,6 +51,9 @@ def upload_document(file):
             result = response.json()
             st.success(f"✅ Successfully uploaded: {result['title']}")
             st.success(f"📄 Processed {len(result['chunks'])} chunks")
+            # Clear the documents_loaded flag to force a refresh
+            if 'documents_loaded' in st.session_state:
+                del st.session_state.documents_loaded
             fetch_documents()  # Refresh document list
             return True
         else:

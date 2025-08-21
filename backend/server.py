@@ -198,15 +198,16 @@ async def upload_document(file: UploadFile = File(...)):
 async def initialize_sample_data():
     """Initialize the database with sample clinical trial data"""
     try:
+        # Check if there are any existing documents first
+        existing_count = await db.documents.count_documents({})
+        if existing_count > 0:
+            return {"message": "Cannot load sample data: Documents already exist in the database"}
+            
         # Initialize sample documents list
         sample_documents = []
         
         # Try to use MongoDB if available
-        try:
-            # First, delete any existing sample documents to avoid duplicates
-            await db.documents.delete_many({"title": {"$regex": "Phase.*Trial"}})
-            documents_created = []
-                
+        try:                
             # Process and save sample data to MongoDB
             documents_created = []
             
