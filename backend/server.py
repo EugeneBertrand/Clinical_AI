@@ -161,6 +161,11 @@ async def upload_document(file: UploadFile = File(...)):
     if not file.filename.endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Only PDF files are supported")
     
+    # Block specific sample document names
+    blocked_names = ["Sample Clinical Trial 1", "Sample Clinical Trial 2"]
+    if any(blocked_name in file.filename for blocked_name in blocked_names):
+        raise HTTPException(status_code=400, detail="Uploading sample documents with this name is not allowed")
+    
     content = await file.read()
     text = extract_text_from_pdf(content)
     
@@ -198,10 +203,9 @@ async def initialize_sample_data():
         
         # Try to use MongoDB if available
         try:
-            # Check if sample data already exists in MongoDB
-            existing_count = await db.documents.count_documents({"title": {"$regex": "Phase.*Trial"}})
-            if existing_count > 0:
-                return {"message": f"Sample data already exists in database ({existing_count} documents)"}
+            # First, delete any existing sample documents to avoid duplicates
+            await db.documents.delete_many({"title": {"$regex": "Phase.*Trial"}})
+            documents_created = []
                 
             # Process and save sample data to MongoDB
             documents_created = []
@@ -339,30 +343,15 @@ Please provide a detailed answer based on the clinical trial data provided. If t
 @api_router.get("/documents", response_model=List[DocumentResponse])
 async def get_documents():
     try:
-        # Try to get documents from MongoDB
-        documents = await db.documents.find({}, {"embeddings": 0, "_id": 0}).to_list(1000)
-        if documents:
-            return [DocumentResponse(**doc) for doc in documents]
+        # Only return documents that are not sample documents
+        documents = await db.documents.find(
+            {"title": {"$nin": ["Sample Clinical Trial 1", "Sample Clinical Trial 2"]}}, 
+            {"embeddings": 0, "_id": 0}
+        ).to_list(1000)
+        return [DocumentResponse(**doc) for doc in documents]
     except Exception as e:
         print(f"MongoDB error: {e}")
-    
-    # Return sample data if MongoDB is not available
-    return [
-        DocumentResponse(
-            id="1",
-            title="Sample Clinical Trial 1",
-            content="This is a sample clinical trial document.",
-            chunks=["Sample chunk 1", "Sample chunk 2"],
-            created_at=datetime.utcnow()
-        ),
-        DocumentResponse(
-            id="2",
-            title="Sample Clinical Trial 2",
-            content="Another sample document for testing.",
-            chunks=["Another test chunk"],
-            created_at=datetime.utcnow()
-        )
-    ]
+        return []
 
 @api_router.delete("/documents/{document_id}")
 async def delete_document(document_id: str):

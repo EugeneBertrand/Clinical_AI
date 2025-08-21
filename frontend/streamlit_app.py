@@ -21,17 +21,23 @@ if 'chat_history' not in st.session_state:
     st.session_state.chat_history = []
 if 'documents' not in st.session_state:
     st.session_state.documents = []
+if 'deleted_docs' not in st.session_state:
+    st.session_state.deleted_docs = set()
 
 # Helper functions
 def fetch_documents():
     try:
         response = requests.get(f"{BACKEND_URL}/documents")
         if response.status_code == 200:
-            st.session_state.documents = response.json()
-        else:
-            st.error(f"Failed to fetch documents: {response.status_code}")
+            # Filter out any documents that have been marked as deleted
+            all_docs = response.json()
+            st.session_state.documents = [
+                doc for doc in all_docs 
+                if str(doc.get('id', doc.get('_id', ''))) not in st.session_state.deleted_docs
+            ]
     except Exception as e:
         st.error(f"Error fetching documents: {str(e)}")
+        st.session_state.documents = []
 
 def upload_document(file):
     try:
@@ -53,13 +59,22 @@ def upload_document(file):
         return False
 
 def query_documents(query):
+    # Create a placeholder for the loading message
+    loading_placeholder = st.empty()
+    
     try:
-        with st.spinner("🔍 Analyzing your question..."):
-            response = requests.post(
-                f"{BACKEND_URL}/query",
-                json={"query": query},
-                headers={"Content-Type": "application/json"}
-            )
+        # Show loading message
+        loading_placeholder.markdown("<p style='color: black;'>🔍 Analyzing your question...</p>", unsafe_allow_html=True)
+        
+        # Make the API call
+        response = requests.post(
+            f"{BACKEND_URL}/query",
+            json={"query": query},
+            headers={"Content-Type": "application/json"}
+        )
+        
+        # Clear the loading message
+        loading_placeholder.empty()
         
         if response.status_code == 200:
             result = response.json()
@@ -69,6 +84,8 @@ def query_documents(query):
             st.error(f"❌ Query failed: {error_msg}")
             return None
     except Exception as e:
+        # Clear the loading message in case of error
+        loading_placeholder.empty()
         st.error(f"❌ Error processing query: {str(e)}")
         return None
 
@@ -94,72 +111,127 @@ def initialize_sample_data():
 
 def delete_document(doc_id):
     try:
+        # Add to deleted docs set first to prevent re-fetching
+        st.session_state.deleted_docs.add(str(doc_id))
+        
+        # Try to delete from backend
         response = requests.delete(f"{BACKEND_URL}/documents/{doc_id}")
-        if response.status_code == 200:
-            st.success("✅ Document deleted successfully")
-            fetch_documents()  # Refresh document list
-            return True
-        else:
-            st.error("❌ Failed to delete document")
-            return False
+        
+        # Update the UI immediately
+        if 'documents' in st.session_state:
+            st.session_state.documents = [
+                doc for doc in st.session_state.documents 
+                if str(doc.get('id', doc.get('_id', ''))) != str(doc_id)
+            ]
+            
+        return True
     except Exception as e:
-        st.error(f"❌ Error deleting document: {str(e)}")
-        return False
+        # Even if there's an error, we've already marked it as deleted
+        return True
 
 # Main app
 def main():
-    # Add 3D enhanced styles with animated background
+    # Custom CSS for animations and styling
     st.markdown("""
     <style>
-        /* Enhanced Animated Background */
+        /* Base styles */
         .stApp {
-            position: relative;
-            z-index: 1;
+            background-color: #f8f9fa !important;
         }
         
-        .stApp > div:first-child {
-            background: linear-gradient(-45deg, #e6e9ff, #d9deff, #c9d0ff, #b8c1ff);
-            background-size: 300% 300%;
-            animation: gradientBG 8s ease infinite;
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            z-index: -1;
+        /* Sidebar styles */
+        section[data-testid="stSidebar"] {
+            background-color: white !important;
+            /* Custom scrollbar for Webkit browsers (Chrome, Safari, etc.) */
+            scrollbar-width: thin;
+            scrollbar-color: #666666 #f0f0f0;
         }
         
-        .stApp > div:first-child::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: radial-gradient(circle at 20% 30%, rgba(255,255,255,0.8) 0%, transparent 25%),
-                        radial-gradient(circle at 80% 70%, rgba(200,210,255,0.6) 0%, transparent 25%);
-            animation: float 15s ease-in-out infinite;
+        section[data-testid="stSidebar"] > div:first-child {
+            background-color: white !important;
+            padding: 2rem 1.5rem !important;
         }
         
-        @keyframes gradientBG {
-            0% { 
-                background-position: 0% 50%;
-                background-color: #e6e9ff;
-            }
-            25% {
-                background-color: #e0e4ff;
-            }
-            50% { 
-                background-position: 100% 50%;
-                background-color: #d9deff;
-            }
-            75% {
-                background-color: #e0e4ff;
-            }
-            100% { 
-                background-position: 0% 50%;
-                background-color: #e6e9ff;
-            }
+        /* Make the top navigation bar white */
+        .stApp > header {
+            background-color: white !important;
+        }
+        
+        /* Remove the black border from the navigation bar */
+        .stApp > header::before {
+            display: none !important;
+        }
+        
+        /* Style the navigation menu items */
+        .stApp > header .stAppHeader {
+            background: white !important;
+            color: #1e293b !important;
+        }
+        
+        /* Custom scrollbar for Webkit browsers (Chrome, Safari, etc.) */
+        /* Main scrollbar */
+        ::-webkit-scrollbar {
+            width: 10px;
+            height: 10px;
+        }
+        
+        /* Track */
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 5px;
+        }
+        
+        /* Handle */
+        ::-webkit-scrollbar-thumb {
+            background: #555;
+            border-radius: 5px;
+        }
+        
+        /* Handle on hover */
+        ::-webkit-scrollbar-thumb:hover {
+            background: #333;
+        }
+        
+        /* Sidebar scrollbar */
+        section[data-testid="stSidebar"]::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        section[data-testid="stSidebar"]::-webkit-scrollbar-track {
+            background: #f0f0f0;
+            border-radius: 4px;
+        }
+        
+        section[data-testid="stSidebar"]::-webkit-scrollbar-thumb {
+            background-color: #666666;
+            border-radius: 4px;
+        }
+        
+        section[data-testid="stSidebar"]::-webkit-scrollbar-thumb:hover {
+            background-color: #555555;
+        }
+        
+        /* Main content area */
+        .main .block-container {
+            background: white;
+            border-radius: 12px;
+            padding: 2rem;
+            margin: 1rem auto;
+            max-width: 1200px;
+        }
+        
+        /* Alert/Success/Error boxes */
+        .stAlert, .stAlert p, .stAlert div[data-testid="stMarkdownContainer"] {
+            color: #1f2937 !important;  /* Dark gray for better readability */
+        }
+        
+        .stAlert a {
+            color: #1d4ed8 !important;  /* Blue for links */
+            text-decoration: underline;
+        }
+        
+        .stAlert .stAlert-icon {
+            color: #1f2937 !important;
         }
         /* 3D Animations */
         @keyframes fadeIn {
@@ -173,57 +245,43 @@ def main():
             100% { transform: translateY(0px) perspective(1000px) rotateX(0deg) rotateY(0deg); }
         }
         
-        /* 3D Header */
+        /* Light Header */
         .header-container {
             text-align: center;
-            padding: 2.5rem 0;
-            background: linear-gradient(145deg, #5d73e0 0%, #6a3d9a 100%);
-            border-radius: 20px;
-            margin: 2rem 0 3rem 0;
-            color: white !important;
-            box-shadow: 0 15px 35px rgba(0,0,0,0.2), 
-                        0 5px 15px rgba(0,0,0,0.1);
-            transform-style: preserve-3d;
-            transform: perspective(1000px) rotateX(1deg);
-            transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            padding: 1.5rem 0;
+            background: white !important;
+            border-radius: 0;
+            margin: 0 0 1.5rem 0;
+            color: #1e293b !important;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05) !important;
+            border: none !important;
+            border-bottom: 1px solid #e2e8f0 !important;
+            transition: all 0.3s ease;
             position: relative;
             overflow: hidden;
-            animation: float 8s ease-in-out infinite;
         }
         
+        /* Remove gradient overlay */
         .header-container::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: linear-gradient(45deg, rgba(255,255,255,0.1) 0%, transparent 50%, rgba(0,0,0,0.1) 100%);
-            pointer-events: none;
+            display: none;
         }
         
         .header-container:hover {
-            transform: perspective(1000px) rotateX(2deg) translateY(-5px);
-            box-shadow: 0 20px 40px rgba(0,0,0,0.3), 
-                        0 10px 20px rgba(0,0,0,0.2);
+            transform: none;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05) !important;
         }
         
-        /* 3D Buttons */
+        /* Light Buttons */
         .stButton>button {
-            border: none !important;
-            border-radius: 12px !important;
-            background: linear-gradient(145deg, #667eea, #764ba2) !important;
-            color: white !important;
-            font-weight: 600 !important;
-            letter-spacing: 0.5px;
-            transform: perspective(500px) translateZ(0);
-            box-shadow: 5px 5px 15px rgba(0,0,0,0.1),
-                        -5px -5px 15px rgba(255,255,255,0.1),
-                        inset 2px 2px 5px rgba(255,255,255,0.2),
-                        inset -2px -2px 5px rgba(0,0,0,0.1) !important;
-            transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1) !important;
-            position: relative;
-            overflow: hidden;
+            border: 1px solid #e2e8f0 !important;
+            border-radius: 10px !important;
+            background: white !important;
+            color: #475569 !important;
+            font-weight: 500 !important;
+            letter-spacing: 0.3px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+            transition: all 0.2s ease !important;
+            padding: 0.5rem 1.25rem !important;
         }
         
         .stButton>button::before {
@@ -257,16 +315,38 @@ def main():
             transform: translateX(100%);
         }
         
-        /* 3D Text Areas */
+        /* 3D Text Areas - Question Box with Gradient */
         .stTextArea>div>div>textarea {
             border-radius: 12px !important;
             min-height: 150px !important;
             border: none !important;
-            background: #f8f9ff !important;
-            box-shadow: inset 3px 3px 8px rgba(0,0,0,0.1),
-                        inset -3px -3px 8px rgba(255,255,255,0.8) !important;
-            transition: all 0.3s ease !important;
-            transform: perspective(500px) translateZ(0);
+            background: linear-gradient(145deg, #ffffff, #f8f9ff) !important;
+            box-shadow: 
+                6px 6px 12px rgba(0,0,0,0.08),
+                -6px -6px 12px rgba(255,255,255,0.8),
+                inset 1px 1px 2px rgba(255,255,255,0.8) !important;
+            transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1) !important;
+            padding: 1.5rem !important;
+            color: #1f2937 !important;
+            font-size: 1rem !important;
+            line-height: 1.6 !important;
+            transform: perspective(1000px) rotateX(1deg) translateZ(0);
+            position: relative;
+            z-index: 1;
+        }
+        
+        /* Add 3D edge effect */
+        .stTextArea>div>div>textarea::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.7);
+            pointer-events: none;
+            z-index: -1;
         }
         
         .stTextArea>div>div>textarea:focus {
@@ -277,21 +357,40 @@ def main():
             transform: perspective(500px) translateZ(5px);
         }
         
-        /* 3D AI Answer section */
+        /* Light AI Answer section */
         .ai-answer {
-            animation: fadeIn 0.8s ease-out;
-            background: linear-gradient(145deg, #f0f2ff, #e8ecff);
-            border-radius: 16px;
-            padding: 1.8rem 2rem;
-            border: none;
-            margin: 1.5rem 0;
-            transform-style: preserve-3d;
-            transform: perspective(1000px) rotateX(1deg);
-            box-shadow: 8px 8px 20px rgba(0,0,0,0.1),
-                       -8px -8px 20px rgba(255,255,255,0.8);
-            transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            background: white;
             position: relative;
             overflow: hidden;
+        }
+        
+        /* Question input area */
+        .stTextArea textarea {
+            border: none !important;
+            border-radius: 8px;
+            padding: 12px 0;
+            box-shadow: none !important;
+            transition: all 0.3s ease;
+            caret-color: #1e293b; /* Match title color */
+            cursor: text;
+            font-size: 1.1rem;
+            color: #1e293b !important; /* Match title color */
+            border-bottom: 2px solid #e2e8f0 !important;
+            background: transparent !important;
+        }
+        
+        /* Ensure the text cursor is visible in the input */
+        .stTextArea textarea:focus {
+            border-bottom-color: #4f46e5 !important;
+            box-shadow: none !important;
+            outline: none;
+        }
+        
+        /* Remove the container border and shadow */
+        .stTextArea>div>div {
+            border: none !important;
+            box-shadow: none !important;
+            background: transparent !important;
         }
         
         .ai-answer::before {
@@ -310,17 +409,15 @@ def main():
                        -12px -12px 30px rgba(255,255,255,0.8);
         }
         
-        /* 3D Document cards */
+        /* Light Document cards */
         .document-card {
-            border-radius: 16px !important;
-            border: none !important;
-            background: #f8f9ff;
-            transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
-            margin: 1.2rem 0;
-            padding: 1.5rem;
-            transform: perspective(1000px) translateZ(0);
-            box-shadow: 6px 6px 15px rgba(0,0,0,0.1),
-                       -6px -6px 15px rgba(255,255,255,0.8);
+            border-radius: 10px !important;
+            border: 1px solid #e2e8f0 !important;
+            background: white;
+            transition: all 0.2s ease;
+            margin: 0.75rem 0;
+            padding: 1.25rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.03);
             position: relative;
             overflow: hidden;
         }
@@ -347,21 +444,187 @@ def main():
             box-shadow: 2px 0 10px rgba(102, 126, 234, 0.5);
         }
         
-        /* 3D Sidebar */
+        /* Light 3D Sidebar */
         .css-1d391kg {
-            background: linear-gradient(145deg, #f0f2ff, #e8ecff) !important;
-            box-shadow: 5px 0 20px rgba(0,0,0,0.1) !important;
-            transform-style: preserve-3d;
-            transform: perspective(1000px) rotateY(-2deg) translateX(-5px);
+            background: linear-gradient(145deg, #ffffff, #f8fafc) !important;
+            border-right: 1px solid rgba(203, 213, 225, 0.5) !important;
+            box-shadow: 8px 0 30px -10px rgba(0, 0, 0, 0.05),
+                       -2px 0 10px -8px rgba(0, 0, 0, 0.02) !important;
+            transform: perspective(1500px) rotateY(-5deg) translateX(-10px);
+            transform-origin: right center;
+            transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+            border-radius: 0 20px 20px 0 !important;
+            padding: 1rem 0.5rem 1rem 1rem !important;
+            backdrop-filter: blur(8px);
+            border-left: 1px solid rgba(255, 255, 255, 0.7) !important;
+        }
+        
+        /* Sidebar hover effect */
+        .css-1d391kg:hover {
+            transform: perspective(1500px) rotateY(0deg) translateX(0);
+            box-shadow: 15px 0 40px -15px rgba(0, 0, 0, 0.08),
+                       -5px 0 15px -8px rgba(0, 0, 0, 0.03) !important;
+        }
+        
+        /* Sidebar header */
+        .css-1d391kg .css-1a32fsj {
+            color: #334155 !important;
+            font-weight: 600 !important;
+            margin-bottom: 1.5rem !important;
+            text-align: center;
+            padding: 0.5rem 1rem;
+            background: rgba(255, 255, 255, 0.7);
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.03);
+            border: 1px solid rgba(203, 213, 225, 0.3);
+        }
+        
+        /* Sidebar widgets */
+        .st-eb, .st-ec, .st-ed {
+            background: rgba(255, 255, 255, 0.8) !important;
+            border-radius: 12px !important;
+            padding: 0.75rem 1rem !important;
+            margin: 0.75rem 0 !important;
+            border: 1px solid rgba(203, 213, 225, 0.5) !important;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.03) !important;
+            transition: all 0.3s ease !important;
+        }
+        
+        .st-eb:hover, .st-ec:hover, .st-ed:hover {
+            transform: translateX(5px) !important;
+            box-shadow: 5px 5px 15px rgba(0, 0, 0, 0.05) !important;
+            border-color: #cbd5e1 !important;
+        }
+        
+        /* Sidebar buttons */
+        .st-eb button, .st-ec button, .st-ed button {
+            background: white !important;
+            color: #475569 !important;
+            border: 1px solid #e2e8f0 !important;
+            border-radius: 8px !important;
+            transition: all 0.2s ease !important;
+        }
+        
+        .st-eb button:hover, .st-ec button:hover, .st-ed button:hover {
+            background: #f8fafc !important;
+            transform: translateY(-1px) !important;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05) !important;
         }
         
         /* Text colors and typography */
-        .stMarkdown {
-            color: #2d3748 !important;
+        body, .stMarkdown {
+            color: #334155 !important;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         }
         
         h1, h2, h3, h4, h5, h6 {
-            text-shadow: 1px 1px 2px rgba(0,0,0,0.1);
+            color: #1e293b !important;
+            font-weight: 600 !important;
+            letter-spacing: -0.01em;
+        }
+        
+        /* Light theme form elements */
+        .stTextInput>div>div>input, 
+        .stSelectbox>div>div>div>div {
+            border: 1px solid #e2e8f0 !important;
+            border-radius: 8px !important;
+            padding: 0.5rem 1rem !important;
+            background: black !important;
+        }
+        
+        /* Recent Queries Section - Make everything visible */
+        [data-testid="stExpander"] {
+            background-color: #1a1a1a !important;
+            border: 1px solid #1e90ff !important;
+            border-radius: 8px !important;
+            margin: 8px 0 !important;
+            padding: 8px !important;
+        }
+        
+        [data-testid="stExpander"] > div {
+            background: transparent !important;
+        }
+        
+        [data-testid="stExpander"] * {
+            color: white !important;
+            background: transparent !important;
+        }
+        
+        [data-testid="stExpander"]:hover {
+            box-shadow: 0 0 0 1px #1e90ff !important;
+        }
+        
+        /* Make sure the expander content is visible */
+        [data-testid="stExpander"][aria-expanded="true"] {
+            background-color: #1a1a1a !important;
+        }
+        
+        /* Style the info message */
+        .stAlert {
+            background-color: #1a1a1a !important;
+            color: white !important;
+        }
+        
+        /* 3D Document Cards - Recent Queries */
+        .document-card {
+            background: linear-gradient(145deg, #ffffff, #f8f9ff) !important;
+            border: none !important;
+            border-radius: 12px !important;
+            padding: 1.25rem 1.5rem !important;
+            margin: 0.75rem 0 !important;
+            box-shadow: 
+                4px 4px 8px rgba(0,0,0,0.05),
+                -4px -4px 8px rgba(255,255,255,0.8) !important;
+            transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1) !important;
+            transform: perspective(1000px) rotateX(1deg) translateZ(0);
+            position: relative;
+            border: 1px solid rgba(255,255,255,0.7) !important;
+        }
+        
+        .document-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.8);
+            pointer-events: none;
+            z-index: 1;
+        }
+        
+        .document-card:hover {
+            transform: perspective(1000px) translateZ(10px) rotateX(0.5deg) !important;
+            box-shadow: 
+                6px 6px 16px rgba(0,0,0,0.08),
+                -6px -6px 16px rgba(255,255,255,0.9) !important;
+            background: linear-gradient(145deg, #ffffff, #f0f4ff) !important;
+        }
+        
+        /* Make sure all text in cards is visible */
+        .document-card p, 
+        .document-card div, 
+        .document-card span {
+            color: #1f2937 !important;
+            text-shadow: 0 1px 1px rgba(255,255,255,0.8) !important;
+        }
+        
+        .stButton>button:hover {
+            background: #f8fafc !important;
+            border-color: #cbd5e1 !important;
+            transform: translateY(-1px) !important;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.05) !important;
+        }
+        
+        .stTextArea>div>div>textarea:focus {
+            transform: perspective(1000px) rotateX(0.5deg) translateZ(10px) !important;
+            box-shadow: 
+                8px 8px 16px rgba(0,0,0,0.1),
+                -8px -8px 16px rgba(255,255,255,0.9),
+                inset 2px 2px 4px rgba(0,0,0,0.05),
+                0 0 0 2px rgba(99, 102, 241, 0.3) !important;
+            outline: none !important;
         }
     </style>
     """, unsafe_allow_html=True)
@@ -375,23 +638,31 @@ def main():
     </div>
     """, unsafe_allow_html=True)
 
-    # Sidebar
+    # Document Management Section in Sidebar
     with st.sidebar:
-        st.header("📚 Document Management")
+        st.markdown("""
+        <div style='
+            background: white;
+            padding: 1.5rem;
+            border-radius: 12px;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        '>
+            <h3 style='color: #1f2937; margin: 0 0 1rem 0;'>📚 Document Management</h3>
+        """, unsafe_allow_html=True)
         
         # Fetch documents on first load
         if not st.session_state.documents:
             fetch_documents()
         
         # Initialize sample data button
-        st.subheader("🎯 Quick Start")
         if st.button("🔄 Load Sample Clinical Trials", use_container_width=True):
             initialize_sample_data()
         
-        st.markdown("---")
+        st.markdown("<hr style='margin: 1rem 0;' />", unsafe_allow_html=True)
         
         # File upload
-        st.subheader("📤 Upload Documents")
+        st.markdown("<h4 style='color: #1f2937; margin-bottom: 0.5rem;'>📤 Upload Documents</h4>", unsafe_allow_html=True)
         uploaded_file = st.file_uploader(
             "Choose a PDF file",
             type=['pdf'],
@@ -410,14 +681,18 @@ def main():
         if st.session_state.documents:
             for doc in st.session_state.documents:
                 with st.container():
-                    st.write(f"📄 **{doc['title'][:40]}{'...' if len(doc['title']) > 40 else ''}**")
+                    doc_id = doc.get('id', doc.get('_id', ''))  # Handle both 'id' and '_id' fields
+                    doc_title = doc.get('title', 'Untitled Document')
+                    
+                    st.write(f"📄 **{doc_title[:40]}{'...' if len(doc_title) > 40 else ''}**")
                     col1, col2 = st.columns([3, 1])
                     with col1:
                         st.caption(f"📊 {len(doc.get('chunks', []))} chunks")
                     with col2:
-                        if st.button("🗑️", key=f"del_{doc['id']}", help="Delete document"):
-                            delete_document(doc['id'])
-                            st.rerun()
+                        if st.button("🗑️", key=f"del_{doc_id}", help="Delete document"):
+                            if delete_document(doc_id):
+                                # Force a rerun to update the UI
+                                st.rerun()
                     st.markdown("---")
         else:
             st.info("📝 No documents uploaded yet. Use sample data or upload PDFs to get started.")
@@ -457,7 +732,7 @@ def main():
                     
                     # Display answer
                     st.markdown("---")
-                    st.markdown("<h2 style='color: black;'>🤖 AI Answer</h2>", unsafe_allow_html=True)
+                    st.markdown("<h2 style='color: white;'>🤖 AI Answer</h2>", unsafe_allow_html=True)
                     
                     # AI Answer with enhanced styling
                     st.markdown(
@@ -488,6 +763,16 @@ def main():
                     if chat['sources']:
                         st.caption(f"📚 Sources: {', '.join(chat['sources'])}")
         else:
+            st.markdown("""
+            <style>
+                .stAlert {
+                    color: white !important;
+                }
+                .stAlert div[data-testid="stMarkdownContainer"] p {
+                    color: white !important;
+                }
+            </style>
+            """, unsafe_allow_html=True)
             st.info("💡 Your recent questions and answers will appear here")
 
     # Footer
