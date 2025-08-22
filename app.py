@@ -71,36 +71,30 @@ def load_models():
         logger.info(f"Connecting to MongoDB with URL: {mongo_url[:50]}...")
         logger.info(f"Using database: {db_name}")
             
-        # Configure MongoDB client with SSL settings for Streamlit Cloud
+        # Configure MongoDB client with minimal settings for Streamlit Cloud
         mongo_client = MongoClient(
             mongo_url,
-            # SSL/TLS Configuration
+            # Basic connection settings
+            serverSelectionTimeoutMS=10000,  # 10 seconds
+            socketTimeoutMS=30000,           # 30 seconds
+            connectTimeoutMS=10000,          # 10 seconds
+            
+            # SSL/TLS - use only one of these options
             tls=True,
-            tlsAllowInvalidCertificates=True,
-            tlsInsecure=True,  # Bypass certificate validation (use with caution)
-            tlsAllowInvalidHostnames=True,  # Allow invalid hostnames
+            tlsAllowInvalidCertificates=True,  # Only for development
             
-            # Timeout settings
-            serverSelectionTimeoutMS=10000,  # Increased from 5000
-            connectTimeoutMS=15000,          # Increased from 10000
-            socketTimeoutMS=60000,           # Increased from 45000
-            
-            # Additional settings
+            # Connection settings
             retryWrites=True,
             w='majority',
             
             # Connection pooling
-            maxPoolSize=50,
+            maxPoolSize=10,
             minPoolSize=1,
             maxIdleTimeMS=30000,
             
-            # Replica set configuration
-            replicaSet='atlas-14j6hx-shard-0',
-            readPreference='primaryPreferred',
-            
             # Authentication
-            authSource='admin',
-            authMechanism='SCRAM-SHA-1'  # Try both SCRAM-SHA-1 and SCRAM-SHA-256
+            authSource='admin'
+            # Let MongoDB driver auto-detect the auth mechanism
         )
         
         # Test the connection with more detailed error handling
