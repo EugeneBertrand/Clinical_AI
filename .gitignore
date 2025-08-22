@@ -1,5 +1,9 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
+# Environment variables
+.env
+*.env
+
 # IDE and editors
 .idea/
 .vscode/
@@ -78,3 +82,20 @@ agenthub/agents/youtube/db
 
 # Mobile development
 android-sdk/ 
+# Environment variables
+.env
+*.env
+
+# Debug and test files
+debug_output.txt
+__pycache__/
+*.py[cod]
+*.class
+
+# Local development
+.venv
+venv/
+ENV/
+
+# Streamlit
+.streamlit/
