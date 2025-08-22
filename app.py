@@ -22,9 +22,6 @@ import requests
 from pymongo import MongoClient
 from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
-
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -32,34 +29,39 @@ logger = logging.getLogger(__name__)
 # Initialize models and clients
 @st.cache_resource
 def load_models():
-    # Load environment variables from .env file
-    load_dotenv()
-    
-    # Get MongoDB URL and other settings
-    mongo_url = os.getenv('MONGO_URL')
-    db_name = os.getenv('DB_NAME', 'clinical_ai')
-    
     try:
-        # Configure MongoDB client with settings that worked in the test script
+        # Get MongoDB URL from Streamlit secrets or fall back to environment variables
+        mongo_url = st.secrets.get('MONGO_URI', os.getenv('MONGO_URL'))
+        db_name = st.secrets.get('DB_NAME', os.getenv('DB_NAME', 'clinical_ai'))
+        groq_api_key = st.secrets.get('GROQ_API_KEY', os.getenv('GROQ_API_KEY'))
+        
+        if not mongo_url:
+            raise ValueError("MongoDB connection string not found in secrets or environment variables")
+            
+        # Configure MongoDB client with secure settings
         mongo_client = MongoClient(
             mongo_url,
             ssl=True,
             tlsAllowInvalidCertificates=True,
-            serverSelectionTimeoutMS=5000
+            serverSelectionTimeoutMS=5000,
+            connectTimeoutMS=10000,
+            socketTimeoutMS=45000
         )
         
         # Test the connection
-        mongo_client.server_info()  # Will raise an exception if connection fails
-        print("Successfully connected to MongoDB Atlas!")
+        mongo_client.admin.command('ping')
+        logger.info("Successfully connected to MongoDB!")
         
-        # Initialize the database and collection
+        # Initialize the database
         db = mongo_client[db_name]
-        print(f"Using database: {db_name}")
-        print(f"Available collections: {db.list_collection_names()}")
+        logger.info(f"Using database: {db_name}")
+        
+        # Initialize the embedding model
+        embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
         
         return {
-            'embedding_model': SentenceTransformer('all-MiniLM-L6-v2'),
-            'groq_api_key': os.getenv('GROQ_API_KEY'),
+            'embedding_model': embedding_model,
+            'groq_api_key': groq_api_key,
             'mongo_client': mongo_client,
         }
         
