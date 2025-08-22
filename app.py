@@ -71,17 +71,17 @@ def load_models():
         logger.info(f"Connecting to MongoDB with URL: {mongo_url[:50]}...")
         logger.info(f"Using database: {db_name}")
             
-        # Configure MongoDB client with minimal settings for Streamlit Cloud
+        # Configure MongoDB client with SSL settings for Streamlit Cloud
         mongo_client = MongoClient(
             mongo_url,
-            # Basic connection settings
+            # Connection settings
             serverSelectionTimeoutMS=10000,  # 10 seconds
             socketTimeoutMS=30000,           # 30 seconds
             connectTimeoutMS=10000,          # 10 seconds
             
-            # SSL/TLS - use only one of these options
-            tls=True,
-            tlsAllowInvalidCertificates=True,  # Only for development
+            # SSL/TLS Configuration
+            ssl=True,  # Use ssl instead of tls
+            ssl_cert_reqs='CERT_NONE',  # Don't validate the certificate
             
             # Connection settings
             retryWrites=True,
@@ -93,8 +93,17 @@ def load_models():
             maxIdleTimeMS=30000,
             
             # Authentication
-            authSource='admin'
-            # Let MongoDB driver auto-detect the auth mechanism
+            authSource='admin',
+            
+            # Force specific connection options
+            directConnection=False,
+            
+            # Add retry logic
+            retryReads=True,
+            
+            # Add server selection settings
+            serverSelectionTryOnce=False,
+            server_selector=None
         )
         
         # Test the connection with more detailed error handling
