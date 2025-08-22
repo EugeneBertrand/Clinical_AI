@@ -30,10 +30,26 @@ logger = logging.getLogger(__name__)
 @st.cache_resource
 def load_models():
     try:
-        # Get MongoDB URL from Streamlit secrets or fall back to environment variables
-        mongo_url = st.secrets.get('MONGO_URI', os.getenv('MONGO_URL'))
-        db_name = st.secrets.get('DB_NAME', os.getenv('DB_NAME', 'clinical_ai'))
-        groq_api_key = st.secrets.get('GROQ_API_KEY', os.getenv('GROQ_API_KEY'))
+        # Get MongoDB URL from Streamlit secrets (nested under [mongo] section) or fall back to environment variables
+        mongo_url = (
+            st.secrets.get('mongo', {}).get('url') or  # Check under [mongo] section
+            st.secrets.get('MONGO_URI') or            # Check at root level (for backward compatibility)
+            os.getenv('MONGO_URL')                    # Fall back to environment variable
+        )
+        
+        # Get database name with similar fallback logic
+        db_name = (
+            st.secrets.get('mongo', {}).get('db_name') or  # Check under [mongo] section
+            st.secrets.get('DB_NAME') or                   # Check at root level
+            os.getenv('DB_NAME', 'clinical_ai')            # Fall back to environment variable or default
+        )
+        
+        # Get Groq API key with similar fallback logic
+        groq_api_key = (
+            st.secrets.get('groq', {}).get('api_key') or  # Check under [groq] section
+            st.secrets.get('GROQ_API_KEY') or             # Check at root level
+            os.getenv('GROQ_API_KEY')                     # Fall back to environment variable
+        )
         
         if not mongo_url:
             raise ValueError("MongoDB connection string not found in secrets or environment variables")
