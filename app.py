@@ -30,43 +30,81 @@ logger = logging.getLogger(__name__)
 @st.cache_resource
 def load_models():
     try:
-        # Get MongoDB URL from Streamlit secrets (nested under [mongo] section) or fall back to environment variables
-        mongo_url = (
-            st.secrets.get('mongo', {}).get('url') or  # Check under [mongo] section
-            st.secrets.get('MONGO_URI') or            # Check at root level (for backward compatibility)
-            os.getenv('MONGO_URL')                    # Fall back to environment variable
-        )
+        # Log which secrets are available (for debugging)
+        available_secrets = list(st.secrets.keys())
+        logger.info(f"Available secret sections: {available_secrets}")
         
-        # Get database name with similar fallback logic
-        db_name = (
-            st.secrets.get('mongo', {}).get('db_name') or  # Check under [mongo] section
-            st.secrets.get('DB_NAME') or                   # Check at root level
-            os.getenv('DB_NAME', 'clinical_ai')            # Fall back to environment variable or default
-        )
+        # Get MongoDB URL from Streamlit secrets or environment variables
+        mongo_url = None
+        if 'mongo' in st.secrets and 'url' in st.secrets.mongo:
+            mongo_url = st.secrets.mongo.url
+            logger.info("Found MongoDB URL in secrets.mongo.url")
+        elif 'MONGO_URI' in st.secrets:
+            mongo_url = st.secrets.MONGO_URI
+            logger.info("Found MongoDB URL in secrets.MONGO_URI")
+        else:
+            mongo_url = os.getenv('MONGO_URL')
+            logger.info("Using MongoDB URL from environment variable")
         
-        # Get Groq API key with similar fallback logic
-        groq_api_key = (
-            st.secrets.get('groq', {}).get('api_key') or  # Check under [groq] section
-            st.secrets.get('GROQ_API_KEY') or             # Check at root level
-            os.getenv('GROQ_API_KEY')                     # Fall back to environment variable
-        )
+        # Get database name
+        db_name = 'clinical_ai'  # Default
+        if 'mongo' in st.secrets and 'db_name' in st.secrets.mongo:
+            db_name = st.secrets.mongo.db_name
+        elif 'DB_NAME' in st.secrets:
+            db_name = st.secrets.DB_NAME
+        else:
+            db_name = os.getenv('DB_NAME', 'clinical_ai')
         
+        # Get Groq API key
+        groq_api_key = None
+        if 'groq' in st.secrets and 'api_key' in st.secrets.groq:
+            groq_api_key = st.secrets.groq.api_key
+        elif 'GROQ_API_KEY' in st.secrets:
+            groq_api_key = st.secrets.GROQ_API_KEY
+        else:
+            groq_api_key = os.getenv('GROQ_API_KEY')
+        
+        # Verify we have a MongoDB URL
         if not mongo_url:
-            raise ValueError("MongoDB connection string not found in secrets or environment variables")
+            raise ValueError("❌ MongoDB connection string not found in secrets or environment variables")
             
-        # Configure MongoDB client with secure settings
+        logger.info(f"Connecting to MongoDB with URL: {mongo_url[:50]}...")
+        logger.info(f"Using database: {db_name}")
+            
+        # Configure MongoDB client with secure settings and timeouts
         mongo_client = MongoClient(
             mongo_url,
             ssl=True,
             tlsAllowInvalidCertificates=True,
-            serverSelectionTimeoutMS=5000,
-            connectTimeoutMS=10000,
-            socketTimeoutMS=45000
+            serverSelectionTimeoutMS=10000,  # Increased from 5000
+            connectTimeoutMS=15000,          # Increased from 10000
+            socketTimeoutMS=60000,           # Increased from 45000
+            retryWrites=True,
+            w='majority'
         )
         
-        # Test the connection
-        mongo_client.admin.command('ping')
-        logger.info("Successfully connected to MongoDB!")
+        # Test the connection with more detailed error handling
+        try:
+            server_info = mongo_client.server_info()
+            logger.info(f"✅ Successfully connected to MongoDB! Version: {server_info.get('version')}")
+            logger.info(f"Host: {server_info.get('host')}, Port: {server_info.get('port')}")
+            
+            # List available databases (for debugging)
+            try:
+                db_list = mongo_client.list_database_names()
+                logger.info(f"Available databases: {db_list}")
+            except Exception as e:
+                logger.warning(f"Could not list databases: {str(e)}")
+                
+        except Exception as e:
+            error_msg = f"❌ Failed to connect to MongoDB: {str(e)}"
+            logger.error(error_msg)
+            # Try to get more detailed error information
+            try:
+                mongo_client.admin.command('ping')
+            except Exception as inner_e:
+                logger.error(f"Detailed connection error: {str(inner_e)}")
+            raise ConnectionError(error_msg) from e
         
         # Initialize the database
         db = mongo_client[db_name]
