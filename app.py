@@ -71,39 +71,23 @@ def load_models():
         logger.info(f"Connecting to MongoDB with URL: {mongo_url[:50]}...")
         logger.info(f"Using database: {db_name}")
             
-        # Configure MongoDB client with SSL settings for Streamlit Cloud
+        # Minimal MongoDB Atlas connection settings
         mongo_client = MongoClient(
             mongo_url,
-            # Connection settings
-            serverSelectionTimeoutMS=10000,  # 10 seconds
-            socketTimeoutMS=30000,           # 30 seconds
-            connectTimeoutMS=10000,          # 10 seconds
+            # Basic timeouts
+            serverSelectionTimeoutMS=10000,
+            connectTimeoutMS=10000,
+            socketTimeoutMS=30000,
             
-            # SSL/TLS Configuration
-            ssl=True,  # Use ssl instead of tls
-            ssl_cert_reqs='CERT_NONE',  # Don't validate the certificate
+            # Basic SSL/TLS - use minimum required settings
+            tls=True,
             
-            # Connection settings
+            # Basic connection settings
             retryWrites=True,
             w='majority',
             
-            # Connection pooling
-            maxPoolSize=10,
-            minPoolSize=1,
-            maxIdleTimeMS=30000,
-            
             # Authentication
-            authSource='admin',
-            
-            # Force specific connection options
-            directConnection=False,
-            
-            # Add retry logic
-            retryReads=True,
-            
-            # Add server selection settings
-            serverSelectionTryOnce=False,
-            server_selector=None
+            authSource='admin'
         )
         
         # Test the connection with more detailed error handling
