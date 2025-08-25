@@ -197,13 +197,13 @@ async def upload_document(file: UploadFile = File(...), session_id: str = Header
     return document
 
 @api_router.post("/initialize-sample-data")
-async def initialize_sample_data():
-    """Initialize the database with sample clinical trial data"""
+async def initialize_sample_data(session_id: str = Header(..., alias="X-Session-ID")):
+    """Initialize the database with sample clinical trial data for the current session"""
     try:
-        # Check if there are any existing documents first
-        existing_count = await db.documents.count_documents({})
+        # Check if there are any existing documents for this session
+        existing_count = await db.documents.count_documents({"session_id": session_id})
         if existing_count > 0:
-            return {"message": "Cannot load sample data: Documents already exist in the database"}
+            return {"message": "Cannot load sample data: Documents already exist for this session"}
             
         # Initialize sample documents list
         sample_documents = []
@@ -223,9 +223,9 @@ async def initialize_sample_data():
                 # Generate embeddings for each chunk
                 embeddings = [embedding_model.encode(chunk).tolist() for chunk in chunks]
                 
-                # Create document
+                # Create document with the session ID from the request
                 document = Document(
-                    session_id=str(uuid.uuid4()),
+                    session_id=session_id,  # Use the session ID from the request
                     title=trial_data['title'],
                     content=text,
                     chunks=chunks,
@@ -248,6 +248,7 @@ async def initialize_sample_data():
                 
                 document = DocumentResponse(
                     id=str(uuid.uuid4()),
+                    session_id=session_id,  # Use the session ID from the request
                     title=trial_data['title'],
                     content=text,
                     chunks=chunks,
@@ -257,7 +258,8 @@ async def initialize_sample_data():
             
             # Store in the in-memory list (for this session only)
             if not hasattr(initialize_sample_data, 'in_memory_documents'):
-                initialize_sample_data.in_memory_documents = sample_documents
+                initialize_sample_data.in_memory_documents = {}
+            initialize_sample_data.in_memory_documents[session_id] = sample_documents
             
             return {
                 "message": "Using in-memory sample data (MongoDB not available)",
@@ -351,28 +353,64 @@ Please provide a detailed answer based on the clinical trial data provided. If t
 @api_router.get("/documents", response_model=List[DocumentResponse])
 async def get_documents(session_id: str = Header(..., alias="X-Session-ID")):
     try:
-        # Only return documents that are not sample documents
-        documents = await db.documents.find(
-            {"session_id": session_id},  # Only get documents for this session
-            {"id": 1, "title": 1, "created_at": 1, "_id": 0}
-        ).to_list(1000)
-        return [DocumentResponse(**doc) for doc in documents]
+        # Try to get documents from MongoDB first
+        try:
+            documents = await db.documents.find(
+                {"session_id": session_id},  # Only get documents for this session
+                {"id": 1, "title": 1, "content": 1, "chunks": 1, "created_at": 1, "_id": 0}
+            ).to_list(1000)
+            
+            if documents:
+                return [DocumentResponse(**doc) for doc in documents]
+                
+        except Exception as db_error:
+            logging.warning(f"MongoDB query failed, falling back to in-memory storage: {db_error}")
+            
+        # Fall back to in-memory storage if MongoDB fails or returns no results
+        if hasattr(initialize_sample_data, 'in_memory_documents'):
+            in_memory_docs = initialize_sample_data.in_memory_documents.get(session_id, [])
+            return in_memory_docs
+            
+        return []
+        
     except Exception as e:
         logging.error(f"Error getting documents: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get documents: {str(e)}")
-        return []
 
 @api_router.delete("/documents/{document_id}")
 async def delete_document(document_id: str, session_id: str = Header(..., alias="X-Session-ID")):
-    # Only delete if the document belongs to the current session
-    result = await db.documents.delete_one({
-        "id": document_id,
-        "session_id": session_id  # Ensure the document belongs to this session
-    })
-    if result.deleted_count == 0:
-        # Don't reveal if the document exists but belongs to another session
+    try:
+        # First try to delete from MongoDB
+        try:
+            result = await db.documents.delete_one({
+                "id": document_id,
+                "session_id": session_id  # Ensure the document belongs to this session
+            })
+            
+            if result.deleted_count > 0:
+                return {"message": "Document deleted successfully"}
+                
+        except Exception as db_error:
+            logging.warning(f"MongoDB delete failed, trying in-memory storage: {db_error}")
+        
+        # If MongoDB delete failed or document not found, try in-memory storage
+        if hasattr(initialize_sample_data, 'in_memory_documents') and session_id in initialize_sample_data.in_memory_documents:
+            # Get the documents for this session
+            session_docs = initialize_sample_data.in_memory_documents[session_id]
+            
+            # Find and remove the document
+            initial_count = len(session_docs)
+            session_docs[:] = [doc for doc in session_docs if doc.id != document_id]
+            
+            if len(session_docs) < initial_count:
+                return {"message": "Document deleted successfully from in-memory storage"}
+        
+        # If we get here, the document wasn't found in either storage
         raise HTTPException(status_code=404, detail="Document not found")
-    return {"message": "Document deleted successfully"}
+        
+    except Exception as e:
+        logging.error(f"Error deleting document: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete document: {str(e)}")
 
 @api_router.get("/chat-history", response_model=List[ChatMessage])
 async def get_chat_history(session_id: str = Header(..., alias="X-Session-ID")):
