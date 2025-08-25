@@ -24,10 +24,19 @@ if 'session_id' not in st.session_state:
     st.session_state.is_initialized = False
     st.session_state.deleted_docs = set()
 
-# Custom headers with session ID
-HEADERS = {
-    'X-Session-ID': st.session_state.session_id
-}
+# Fetch documents for the current session when the app loads
+if 'initial_fetch_done' not in st.session_state:
+    st.session_state.initial_fetch_done = True
+    # Use a small delay to ensure the session state is fully initialized
+    import time
+    time.sleep(0.5)
+    fetch_documents(force_refresh=True)
+
+# Helper function to get current headers with session ID
+def get_headers():
+    return {
+        'X-Session-ID': st.session_state.session_id
+    }
 
 # Helper functions
 def get_documents() -> List[Dict[str, Any]]:
@@ -35,7 +44,7 @@ def get_documents() -> List[Dict[str, Any]]:
     try:
         response = requests.get(
             f"{BACKEND_URL}/documents/",
-            headers=HEADERS
+            headers=get_headers()
         )
         response.raise_for_status()
         return response.json()
@@ -46,13 +55,23 @@ def get_documents() -> List[Dict[str, Any]]:
 def fetch_documents(force_refresh=False):
     try:
         if force_refresh or not st.session_state.get('documents_loaded', False):
-            st.session_state.documents = get_documents()
-            st.session_state.documents_loaded = True
-            return True
+            # Clear the current documents to prevent showing stale data
+            st.session_state.documents = []
+            
+            # Get documents from the backend with the current session ID
+            documents = get_documents()
+            
+            # Only update if we got a valid response
+            if documents is not None:
+                st.session_state.documents = documents
+                st.session_state.documents_loaded = True
+                return True
+            return False
         return False
     except Exception as e:
         st.error(f"Error fetching documents: {str(e)}")
         st.session_state.documents = []
+        st.session_state.documents_loaded = False
         return False
 
 def upload_document(file) -> bool:
@@ -60,9 +79,9 @@ def upload_document(file) -> bool:
     try:
         files = {'file': (file.name, file.getvalue(), 'application/pdf')}
         response = requests.post(
-            f"{BACKEND_URL}/upload",  # Updated to match backend endpoint
+            f"{BACKEND_URL}/upload",
             files=files,
-            headers=HEADERS
+            headers=get_headers()
         )
         if response.status_code == 200:
             result = response.json()
@@ -87,7 +106,7 @@ def query_documents(query: str) -> Optional[Dict[str, Any]]:
         response = requests.post(
             f"{BACKEND_URL}/query",
             json={"query": query},
-            headers=HEADERS
+            headers=get_headers()
         )
         if response.status_code == 200:
             result = response.json()
@@ -106,7 +125,7 @@ def initialize_sample_data():
         with st.spinner("🔄 Loading sample clinical trial data..."):
             response = requests.post(
                 f"{BACKEND_URL}/initialize-sample-data/",
-                headers=HEADERS
+                headers=get_headers()
             )
         if response.status_code == 200:
             result = response.json()
@@ -131,7 +150,7 @@ def delete_document(doc_id):
         # Try to delete from backend with session headers
         response = requests.delete(
             f"{BACKEND_URL}/documents/{doc_id}",
-            headers=HEADERS
+            headers=get_headers()
         )
         
         # Update the UI immediately
