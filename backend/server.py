@@ -38,6 +38,7 @@ api_router = APIRouter(prefix="/api")
 # Models
 class Document(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    session_id: str  # Unique identifier for each user session
     title: str
     content: str
     chunks: List[str]
@@ -179,10 +180,11 @@ async def upload_document(file: UploadFile = File(...)):
     chunks = chunk_text(text)
     
     # Generate embeddings for each chunk
-    embeddings = embedding_model.encode(chunks).tolist()
+    embeddings = [embedding_model.encode(chunk).tolist() for chunk in chunks]
     
     # Create document
     document = Document(
+        session_id=session_id,
         title=file.filename,
         content=text,
         chunks=chunks,
@@ -219,10 +221,11 @@ async def initialize_sample_data():
                 chunks = chunk_text(text)
                 
                 # Generate embeddings for each chunk
-                embeddings = embedding_model.encode(chunks).tolist()
+                embeddings = [embedding_model.encode(chunk).tolist() for chunk in chunks]
                 
                 # Create document
                 document = Document(
+                    session_id=str(uuid.uuid4()),
                     title=trial_data['title'],
                     content=text,
                     chunks=chunks,
@@ -269,29 +272,33 @@ async def initialize_sample_data():
 in_memory_documents = []
 
 @api_router.post("/query", response_model=QueryResponse)
-async def query_documents(request: QueryRequest):
+async def query_documents(request: QueryRequest, session_id: str = Header(..., alias="X-Session-ID")):
     try:
         # Get query embedding
         query_embedding = embedding_model.encode([request.query])[0].tolist()
         
-        # Retrieve all documents
-        documents = await db.documents.find().to_list(1000)
-        
-        if not documents:
-            raise HTTPException(status_code=404, detail="No documents found. Please upload some clinical trial documents first.")
+        # Retrieve all chunks and their embeddings from the database for this session
+        chunks = []
+        async for doc in db.documents.find(
+            {"session_id": session_id},  # Only query documents for this session
+            {"chunks": 1, "embeddings": 1, "title": 1, "_id": 0}
+        ):
+            for chunk, embedding in zip(doc["chunks"], doc["embeddings"]):
+                chunks.append({
+                    "text": chunk,
+                    "embedding": embedding,
+                    "source": doc["title"]
+                })
         
         # Find most relevant chunks
         relevant_chunks = []
-        chunk_sources = []
-        
-        for doc in documents:
-            for i, chunk_embedding in enumerate(doc['embeddings']):
-                similarity = cosine_similarity(query_embedding, chunk_embedding)
-                relevant_chunks.append({
-                    'chunk': doc['chunks'][i],
-                    'similarity': similarity,
-                    'source': doc['title']
-                })
+        for chunk in chunks:
+            similarity = cosine_similarity(query_embedding, chunk["embedding"])
+            relevant_chunks.append({
+                "chunk": chunk["text"],
+                "similarity": similarity,
+                "source": chunk["source"]
+            })
         
         # Sort by similarity and take top 5
         relevant_chunks.sort(key=lambda x: x['similarity'], reverse=True)
@@ -324,7 +331,7 @@ Please provide a detailed answer based on the clinical trial data provided. If t
         
         # Save chat message
         chat_message = ChatMessage(
-            session_id=str(uuid.uuid4()),
+            session_id=session_id,
             query=request.query,
             answer=answer,
             sources=sources
@@ -342,16 +349,17 @@ Please provide a detailed answer based on the clinical trial data provided. If t
         raise HTTPException(status_code=500, detail=f"Failed to process query: {str(e)}")
 
 @api_router.get("/documents", response_model=List[DocumentResponse])
-async def get_documents():
+async def get_documents(session_id: str = Header(..., alias="X-Session-ID")):
     try:
         # Only return documents that are not sample documents
         documents = await db.documents.find(
-            {"title": {"$nin": ["Sample Clinical Trial 1", "Sample Clinical Trial 2"]}}, 
-            {"embeddings": 0, "_id": 0}
+            {"session_id": session_id},  # Only get documents for this session
+            {"id": 1, "title": 1, "created_at": 1, "_id": 0}
         ).to_list(1000)
         return [DocumentResponse(**doc) for doc in documents]
     except Exception as e:
-        print(f"MongoDB error: {e}")
+        logging.error(f"Error getting documents: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get documents: {str(e)}")
         return []
 
 @api_router.delete("/documents/{document_id}")

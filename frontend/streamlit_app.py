@@ -1,11 +1,14 @@
 import streamlit as st
 import requests
-import json
-from datetime import datetime
-import io
 import os
+from typing import List, Dict, Any, Optional
+from datetime import datetime
+import uuid
 
-# Configure page
+# Configuration
+BACKEND_URL = os.getenv('BACKEND_URL', 'http://127.0.0.1:8000/api')
+
+# Set page config must be the first Streamlit command
 st.set_page_config(
     page_title="🧬 HealthMiner",
     page_icon="🧬",
@@ -13,41 +16,54 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Backend URL - Configurable via environment variable, with localhost as default
-import os
-BACKEND_URL = os.getenv('BACKEND_URL', 'http://127.0.0.1:8000/api')
-
-# Initialize session state
-if 'chat_history' not in st.session_state:
-    st.session_state.chat_history = []
-if 'documents' not in st.session_state:
+# Session state initialization
+if 'session_id' not in st.session_state:
+    st.session_state.session_id = str(uuid.uuid4())
+    st.session_state.messages = []
     st.session_state.documents = []
-if 'deleted_docs' not in st.session_state:
+    st.session_state.is_initialized = False
     st.session_state.deleted_docs = set()
 
-# Helper functions
-def fetch_documents():
-    # Only fetch documents if we don't have any in session state
-    if not st.session_state.get('documents_loaded', False):
-        try:
-            response = requests.get(f"{BACKEND_URL}/documents")
-            if response.status_code == 200:
-                # Filter out any documents that have been marked as deleted
-                all_docs = response.json()
-                st.session_state.documents = [
-                    doc for doc in all_docs 
-                    if str(doc.get('id', doc.get('_id', ''))) not in st.session_state.deleted_docs
-                ]
-                st.session_state.documents_loaded = True
-        except Exception as e:
-            st.error(f"Error fetching documents: {str(e)}")
-            st.session_state.documents = []
+# Custom headers with session ID
+HEADERS = {
+    'X-Session-ID': st.session_state.session_id
+}
 
-def upload_document(file):
+# Helper functions
+def get_documents() -> List[Dict[str, Any]]:
+    """Fetch documents from the backend for the current session."""
     try:
-        files = {"file": (file.name, file.getvalue(), "application/pdf")}
-        response = requests.post(f"{BACKEND_URL}/upload", files=files)
-        
+        response = requests.get(
+            f"{BACKEND_URL}/documents/",
+            headers=HEADERS
+        )
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        st.error(f"Failed to fetch documents: {e}")
+        return []
+
+def fetch_documents(force_refresh=False):
+    try:
+        if force_refresh or not st.session_state.get('documents_loaded', False):
+            st.session_state.documents = get_documents()
+            st.session_state.documents_loaded = True
+            return True
+        return False
+    except Exception as e:
+        st.error(f"Error fetching documents: {str(e)}")
+        st.session_state.documents = []
+        return False
+
+def upload_document(file) -> bool:
+    """Upload a document to the backend for the current session."""
+    try:
+        files = {'file': (file.name, file.getvalue(), 'application/pdf')}
+        response = requests.post(
+            f"{BACKEND_URL}/documents/",
+            files=files,
+            headers=HEADERS
+        )
         if response.status_code == 200:
             result = response.json()
             st.success(f"✅ Successfully uploaded: {result['title']}")
@@ -65,24 +81,14 @@ def upload_document(file):
         st.error(f"❌ Error uploading document: {str(e)}")
         return False
 
-def query_documents(query):
-    # Create a placeholder for the loading message
-    loading_placeholder = st.empty()
-    
+def query_documents(query: str) -> Optional[Dict[str, Any]]:
+    """Query documents and get AI response for the current session."""
     try:
-        # Show loading message
-        loading_placeholder.markdown("<p style='color: black;'>🔍 Analyzing your question...</p>", unsafe_allow_html=True)
-        
-        # Make the API call
         response = requests.post(
             f"{BACKEND_URL}/query",
             json={"query": query},
-            headers={"Content-Type": "application/json"}
+            headers=HEADERS
         )
-        
-        # Clear the loading message
-        loading_placeholder.empty()
-        
         if response.status_code == 200:
             result = response.json()
             return result
@@ -91,16 +97,17 @@ def query_documents(query):
             st.error(f"❌ Query failed: {error_msg}")
             return None
     except Exception as e:
-        # Clear the loading message in case of error
-        loading_placeholder.empty()
         st.error(f"❌ Error processing query: {str(e)}")
         return None
 
 def initialize_sample_data():
+    """Initialize sample data for the current session."""
     try:
         with st.spinner("🔄 Loading sample clinical trial data..."):
-            response = requests.post(f"{BACKEND_URL}/initialize-sample-data")
-        
+            response = requests.post(
+                f"{BACKEND_URL}/initialize-sample-data/",
+                headers=HEADERS
+            )
         if response.status_code == 200:
             result = response.json()
             st.success(f"✅ {result['message']}")
@@ -658,13 +665,15 @@ def main():
             <h3 style='color: #1f2937; margin: 0 0 1rem 0;'>📚 Document Management</h3>
         """, unsafe_allow_html=True)
         
-        # Fetch documents on first load
-        if not st.session_state.documents:
-            fetch_documents()
-        
-        # Initialize sample data button
-        if st.button("🔄 Load Sample Clinical Trials", use_container_width=True):
-            initialize_sample_data()
+        # Initialize sample data button - only show if no documents are loaded
+        if not st.session_state.get('documents_loaded', False) or not st.session_state.documents:
+            if st.button("🔄 Load Sample Clinical Trials", use_container_width=True, type="primary"):
+                with st.spinner("Loading sample clinical trials..."):
+                    if initialize_sample_data():
+                        # Force refresh the documents list after loading samples
+                        st.session_state.documents_loaded = False
+                        fetch_documents(force_refresh=True)
+                        st.rerun()
         
         st.markdown("<hr style='margin: 1rem 0;' />", unsafe_allow_html=True)
         
@@ -685,7 +694,7 @@ def main():
         # Document list
         st.subheader(f"📋 Documents ({len(st.session_state.documents)})")
         
-        if st.session_state.documents:
+        if st.session_state.get('documents_loaded', False) and st.session_state.documents:
             for doc in st.session_state.documents:
                 with st.container():
                     doc_id = doc.get('id', doc.get('_id', ''))  # Handle both 'id' and '_id' fields
@@ -704,10 +713,11 @@ def main():
         else:
             st.info("📝 No documents uploaded yet. Use sample data or upload PDFs to get started.")
         
-        # Refresh button
-        if st.button("🔄 Refresh List", use_container_width=True):
-            fetch_documents()
-            st.rerun()
+        # Refresh button - only show if documents are loaded
+        if st.session_state.get('documents_loaded', False) and st.session_state.documents:
+            if st.button("🔄 Refresh Document List", use_container_width=True):
+                if fetch_documents(force_refresh=True):
+                    st.rerun()
 
     # Main content area
     col1, col2 = st.columns([2, 1])
