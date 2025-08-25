@@ -158,7 +158,7 @@ async def root():
     return {"message": "RAG Clinical Trial Explorer API"}
 
 @api_router.post("/upload", response_model=Document)
-async def upload_document(file: UploadFile = File(...)):
+async def upload_document(file: UploadFile = File(...), session_id: str = Header(..., alias="X-Session-ID")):
     if not file.filename.endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Only PDF files are supported")
     
@@ -182,9 +182,9 @@ async def upload_document(file: UploadFile = File(...)):
     # Generate embeddings for each chunk
     embeddings = [embedding_model.encode(chunk).tolist() for chunk in chunks]
     
-    # Create document
+    # Create document with the session ID from headers
     document = Document(
-        session_id=session_id,
+        session_id=session_id,  # Use the session ID from headers
         title=file.filename,
         content=text,
         chunks=chunks,

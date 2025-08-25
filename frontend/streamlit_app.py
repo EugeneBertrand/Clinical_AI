@@ -60,7 +60,7 @@ def upload_document(file) -> bool:
     try:
         files = {'file': (file.name, file.getvalue(), 'application/pdf')}
         response = requests.post(
-            f"{BACKEND_URL}/documents/",
+            f"{BACKEND_URL}/upload",  # Updated to match backend endpoint
             files=files,
             headers=HEADERS
         )
@@ -128,8 +128,11 @@ def delete_document(doc_id):
         # Add to deleted docs set first to prevent re-fetching
         st.session_state.deleted_docs.add(str(doc_id))
         
-        # Try to delete from backend
-        response = requests.delete(f"{BACKEND_URL}/documents/{doc_id}")
+        # Try to delete from backend with session headers
+        response = requests.delete(
+            f"{BACKEND_URL}/documents/{doc_id}",
+            headers=HEADERS
+        )
         
         # Update the UI immediately
         if 'documents' in st.session_state:
@@ -140,8 +143,8 @@ def delete_document(doc_id):
             
         return True
     except Exception as e:
-        # Even if there's an error, we've already marked it as deleted
-        return True
+        st.error(f"❌ Error deleting document: {str(e)}")
+        return False
 
 # Main app
 def main():
