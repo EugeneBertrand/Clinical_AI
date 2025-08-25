@@ -363,15 +363,23 @@ async def get_documents(session_id: str = Header(..., alias="X-Session-ID")):
         return []
 
 @api_router.delete("/documents/{document_id}")
-async def delete_document(document_id: str):
-    result = await db.documents.delete_one({"id": document_id})
+async def delete_document(document_id: str, session_id: str = Header(..., alias="X-Session-ID")):
+    # Only delete if the document belongs to the current session
+    result = await db.documents.delete_one({
+        "id": document_id,
+        "session_id": session_id  # Ensure the document belongs to this session
+    })
     if result.deleted_count == 0:
+        # Don't reveal if the document exists but belongs to another session
         raise HTTPException(status_code=404, detail="Document not found")
     return {"message": "Document deleted successfully"}
 
 @api_router.get("/chat-history", response_model=List[ChatMessage])
-async def get_chat_history():
-    messages = await db.chat_messages.find().sort("created_at", -1).limit(50).to_list(50)
+async def get_chat_history(session_id: str = Header(..., alias="X-Session-ID")):
+    # Only return chat history for the current session
+    messages = await db.chat_messages.find(
+        {"session_id": session_id}
+    ).sort("created_at", -1).limit(50).to_list(50)
     return [ChatMessage(**msg) for msg in messages]
 
 # Include the router in the main app
