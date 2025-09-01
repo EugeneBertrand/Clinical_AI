@@ -347,7 +347,25 @@ Please provide a detailed answer based on the clinical trial data provided. If t
         )
     
     except Exception as e:
-        logging.error(f"Error processing query: {e}")
+        error_msg = str(e)
+        logging.error(f"Error processing query: {error_msg}")
+        
+        # Check for common error cases
+        if "authentication" in error_msg.lower() or "api key" in error_msg.lower():
+            raise HTTPException(
+                status_code=401,
+                detail="Authentication error with the AI service. Please check your API key configuration."
+            )
+        elif "rate limit" in error_msg.lower():
+            raise HTTPException(
+                status_code=429,
+                detail="Rate limit exceeded for the AI service. Please try again later."
+            )
+        else:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to get response from AI service. Error: {error_msg}"
+            )
         raise HTTPException(status_code=500, detail=f"Failed to process query: {str(e)}")
 
 @api_router.get("/documents", response_model=List[DocumentResponse])
