@@ -283,7 +283,7 @@ def query_documents(query: str, top_k: int = 3):
         
         # Use a supported model - check https://console.groq.com/docs/models for available models
         payload = {
-            "model": "llama3-70b-8192",  # Updated to a supported model
+            "model": "mixtral-8x7b-32768",  # Updated to a supported model
             "messages": [
                 {"role": "system", "content": "You are a helpful AI assistant that answers questions about clinical trials and medical research."},
                 {"role": "user", "content": f"Context: {context}\n\nQuestion: {query}"}
